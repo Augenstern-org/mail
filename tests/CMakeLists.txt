@@ -1,20 +1,23 @@
-# Test registration for CTest.
+# CTest 测试注册。
 #
-# Current state: only smoke tests that run the existing executables and check
-# their output. As real modules land in src/common (protocol parsers, MIME,
-# Maildir, ...), add one unit-test executable per module here:
-#
-#   add_executable(smtp_parser_test smtp_parser_test.cpp)
-#   target_link_libraries(smtp_parser_test PRIVATE mailcommon)
-#   add_test(NAME smtp_parser COMMAND smtp_parser_test)
-#
-# Parsers and codecs are the highest-value unit-test targets, since they are
-# pure functions over byte buffers and easy to cover exhaustively.
+# 单元测试链接 mailcommon 并直接演练各模块。随着解析器/编解码器在 src/common 落地，
+# 在此为每个模块新增一个测试可执行（解析器与编解码器是对字节缓冲的纯函数，是价值最
+# 高的测试目标）。
 
-add_test(NAME server_smoke COMMAND server)
-set_tests_properties(server_smoke PROPERTIES
-    PASS_REGULAR_EXPRESSION "Hello, Server!")
+find_package(Threads REQUIRED)
 
+# LineReader 单元测试：纯逻辑、无套接字，经由内存 ByteSource 伪实现驱动。
+add_executable(line_reader_test line_reader_test.cpp)
+target_link_libraries(line_reader_test PRIVATE mailcommon)
+add_test(NAME line_reader COMMAND line_reader_test)
+
+# net 集成测试：单进程内经回环运行真实的 Listener/Connection。
+add_executable(net_integration_test net_integration_test.cpp)
+target_link_libraries(net_integration_test PRIVATE mailcommon Threads::Threads)
+add_test(NAME net_integration COMMAND net_integration_test)
+
+# 已移除 server_smoke：服务器现在是长期运行的守护进程，运行并检查 stdout 的冒烟测试
+# 不再适用。客户端仍是简单可执行，故保留其冒烟测试。
 add_test(NAME client_smoke COMMAND client)
 set_tests_properties(client_smoke PROPERTIES
     PASS_REGULAR_EXPRESSION "Hello, Client!")

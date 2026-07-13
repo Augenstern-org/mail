@@ -41,7 +41,15 @@
 - ✅ 文档：本计划 + 架构设计。
 - ✅ `src/custom` 重命名为 `src/client`（`git mv` 保留历史，目标名/引用/冒烟测试同步更新）。
 - ✅ 开发环境确定：WSL2 + gcc + cmake + ninja + vcpkg。
-- ⬜ 下一步：**M0 收尾 + M1**——引入 vcpkg manifest；`src/common` 建库，实现 `net` 层 TCP + CRLF 行读取。
+- ✅ **M0**：`vcpkg.json`（空依赖清单）+ `CMakePresets.json`（非强制，供后续依赖用）。
+- ✅ **M1 传输层**（`src/common` → `mailcommon` 静态库）：
+  - `FileDescriptor`（RAII，析构跨 `close` 保 errno）、`IoStatus`/`Result<T>`、`limits.hpp`（RFC 5321/7888 常量）。
+  - `net::Listener`（`accept4(SOCK_CLOEXEC)` + `SO_REUSEADDR` + `TCP_NODELAY`，`stop()` 幂等）、`net::Connection : ByteSource`（EINTR 重试、partial-write 循环、`MSG_NOSIGNAL`）。
+  - `net::LineReader`（单缓冲同时支撑 `readLine`/`readExactly`；`LineTooLong` 只丢超长行、保留后续帧，含跨包丢弃模式）。
+  - `server` 改为 thread-per-connection echo（`telnet 127.0.0.1 2525` 可回显；`QUIT` 回 `bye` 并关闭）。
+  - 测试：`line_reader`（单测，含 pipelining/LineTooLong 边界）、`net_integration`（loopback 收发闭环）、`client_smoke`。
+  - 验证（WSL，g++ 13.3 + `-Wall -Wextra` 零警告）：3/3 CTest 通过 + 真 server 二进制活体 echo 通过。
+- ⬜ 下一步：**M2 SMTP 接收**——`smtp::Session` 状态机（EHLO/MAIL FROM/RCPT TO/DATA），DATA 体按 `<CRLF>.<CRLF>` 终止 + dot-unstuffing。
 
 ## 未决事项 / 待确认
 
