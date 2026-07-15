@@ -11,6 +11,16 @@ add_executable(line_reader_test line_reader_test.cpp)
 target_link_libraries(line_reader_test PRIVATE mailcommon)
 add_test(NAME line_reader COMMAND line_reader_test)
 
+# SMTP 命令解析与响应序列化单元测试：纯函数，无套接字、无状态机。
+add_executable(smtp_command_test smtp_command_test.cpp)
+target_link_libraries(smtp_command_test PRIVATE mailcommon)
+add_test(NAME smtp_command COMMAND smtp_command_test)
+
+# SMTP 会话状态机整场单测：纯逻辑，经内存 ByteSource/ByteSink 伪实现驱动完整事务序列。
+add_executable(smtp_session_test smtp_session_test.cpp)
+target_link_libraries(smtp_session_test PRIVATE mailcommon)
+add_test(NAME smtp_session COMMAND smtp_session_test)
+
 # net 集成测试：单进程内经回环运行真实的 Listener/Connection。
 add_executable(net_integration_test net_integration_test.cpp)
 target_link_libraries(net_integration_test PRIVATE mailcommon Threads::Threads)

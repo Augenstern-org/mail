@@ -14,7 +14,7 @@ enum class IoStatus {
     WouldBlock,  // 非阻塞 fd 暂无数据 / 无法推进（EAGAIN/EWOULDBLOCK）
     Interrupted, // 被信号打断（EINTR）且未在内部重试
     LineTooLong, // 累积的行超过了配置的上限
-    Timeout,     // 预留给将来的定时操作
+    Timeout,     // 已设置接收超时（SO_RCVTIMEO）的 fd 在等待期内未等到数据
     Error,       // 不可恢复错误；如有捕获的 errno 可据其排查
 };
 

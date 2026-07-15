@@ -12,8 +12,7 @@ constexpr std::byte kLF{static_cast<unsigned char>('\n')};
 constexpr std::size_t kFillChunk = 4096;
 constexpr std::size_t kNpos = static_cast<std::size_t>(-1);
 
-// 在缓冲 [from, size) 范围内查找第一个 CRLF，返回其 CR 的下标；找不到完整 CRLF
-// 时返回 kNpos。
+// 在缓冲 [from, size) 范围内查找第一个 CRLF，返回其 CR 的下标；找不到完整 CRLF时返回 kNpos。
 std::size_t findCrlf(const std::vector<std::byte>& buf, std::size_t from) {
     for (std::size_t i = from; i + 1 < buf.size(); ++i) {
         if (buf[i] == kCR && buf[i + 1] == kLF) {
@@ -45,8 +44,7 @@ IoStatus LineReader::fill(std::size_t& outBytes) {
         return IoStatus::Error;
     }
     if (got > 0) {
-        // 每次追加前都无条件回收已消费前缀，使缓冲只保留存活（未消费）字节加上这次
-        // 新读入的数据块。
+        // 每次追加前都无条件回收已消费前缀，使缓冲只保留存活（未消费）字节加上这次新读入的数据块。
         compact();
         buf_.insert(buf_.end(), tmp, tmp + got);
     }
@@ -54,8 +52,8 @@ IoStatus LineReader::fill(std::size_t& outBytes) {
 }
 
 IoStatus LineReader::readLine(std::string& out) {
-    // 若上一次因超长、且当时缓冲中无 CRLF 而进入丢弃模式，先把这一行被拒绝的超长
-    // 行排空到其终止 CRLF 之后，再做正常分帧。
+    // 若上一次因超长、且当时缓冲中无 CRLF 而进入丢弃模式，
+    // 先把这一行被拒绝的超长行排空到其终止 CRLF 之后，再做正常分帧。
     if (discarding_) {
         for (;;) {
             std::size_t crlf = findCrlf(buf_, start_);
@@ -65,8 +63,8 @@ IoStatus LineReader::readLine(std::string& out) {
                 discarding_ = false;
                 break;  // 排空完成，转入正常分帧
             }
-            // 缓冲中尚无完整 CRLF：丢弃这些被拒绝的字节。但若末尾是单个 CR，其 LF
-            // 可能还未到达——保留该 CR，以免 CRLF 被丢弃边界劈开。
+            // 缓冲中尚无完整 CRLF：丢弃这些被拒绝的字节。但若末尾是单个 CR，
+            // 其 LF 可能还未到达——保留该 CR，以免 CRLF 被丢弃边界劈开。
             if (!buf_.empty() && buf_.back() == kCR) {
                 start_ = buf_.size() - 1;
             } else {

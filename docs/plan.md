@@ -49,7 +49,14 @@
   - `server` 改为 thread-per-connection echo（`telnet 127.0.0.1 2525` 可回显；`QUIT` 回 `bye` 并关闭）。
   - 测试：`line_reader`（单测，含 pipelining/LineTooLong 边界）、`net_integration`（loopback 收发闭环）、`client_smoke`。
   - 验证（WSL，g++ 13.3 + `-Wall -Wextra` 零警告）：3/3 CTest 通过 + 真 server 二进制活体 echo 通过。
-- ⬜ 下一步：**M2 SMTP 接收**——`smtp::Session` 状态机（EHLO/MAIL FROM/RCPT TO/DATA），DATA 体按 `<CRLF>.<CRLF>` 终止 + dot-unstuffing。
+- ✅ **M2 SMTP 接收**（`mail::smtp`，接口/实现分置 `include/mail/smtp/` + `src/smtp/`）：
+  - `parseCommand` 纯函数解析层（tagged struct `Command`；`<>` 空反向路径、source route 剥离、quoted-string 透传、`SIZE=`/`BODY=` 参数，其余参数 555）+ `Reply`/`serialize`（RFC 5321 §4.2.1 多行响应）。
+  - `smtp::Session` 四态状态机（Start/Greeted/MailGiven/RcptGiven；DATA 为 `collectData` 内部子循环）：EHLO 声明 PIPELINING/SIZE/8BITMIME；DATA 毒化排空（超长行/超限记 552，排空至 `.` 终止行统一回码）；裸 LF 分帧错误回 500 后关闭（SMTP smuggling 防御）；空闲 300s 超时回 421。
+  - 扩展点：`MessageSink`（M3 Maildir 接入）、`RecipientVerifier`（M4 用户校验接入）；适配器一律放应用层，storage 不依赖 protocol。
+  - net 层扩展：`ByteSink` 抽象（与 `ByteSource` 对偶，`Connection` 双实现）、`Connection::setReceiveTimeout`（SO_RCVTIMEO，EAGAIN→Timeout 门控）；`limits.hpp` 补 5 常量（路径 256 / 收件人 100 / 消息 10 MiB / DATA 线径 1001 / 超时 300s）。
+  - `server` 由 echo 换为 `Session` 驱动（`DiscardSink` 打印信封摘要后丢弃）。
+  - 测试：`smtp_command`（文法边界单测）、`smtp_session`（ChunkSource 喂整场会话，11 场景 + 附加）；5/5 CTest 通过 + 活体冒烟（telnet 级完整投信，dot-unstuffing 以字节数确证）。
+- ⬜ 下一步：**M3 Maildir 存储**——`store::Maildir`（tmp/new/cur 三段式 + 唯一文件名），应用层写 `MaildirSink : smtp::MessageSink` 适配器接入投递链。
 
 ## 未决事项 / 待确认
 

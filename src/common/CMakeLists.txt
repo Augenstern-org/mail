@@ -7,6 +7,9 @@ add_library(mailcommon STATIC
     src/net/connection.cpp
     src/net/listener.cpp
     src/net/line_reader.cpp
+    src/smtp/command.cpp
+    src/smtp/reply.cpp
+    src/smtp/session.cpp
 )
 
 target_include_directories(mailcommon PUBLIC

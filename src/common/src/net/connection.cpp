@@ -4,6 +4,7 @@
 #include <cstddef>
 
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 
 namespace mail::net {
@@ -32,7 +33,7 @@ IoStatus Connection::readSome(std::span<std::byte> buf, std::size_t& outBytes) {
             continue;  // 内部重试
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return IoStatus::WouldBlock;
+            return recvTimeoutSet_ ? IoStatus::Timeout : IoStatus::WouldBlock;
         }
         return IoStatus::Error;
     }
@@ -67,6 +68,20 @@ IoStatus Connection::writeAll(std::span<const std::byte> data) {
 IoStatus Connection::writeAll(std::string_view data) {
     return writeAll(std::span<const std::byte>(
         reinterpret_cast<const std::byte*>(data.data()), data.size()));
+}
+
+bool Connection::setReceiveTimeout(std::chrono::seconds timeout) noexcept {
+    if (!fd_) {
+        return false;
+    }
+    struct timeval tv;
+    tv.tv_sec = static_cast<time_t>(timeout.count());
+    tv.tv_usec = 0;
+    if (::setsockopt(fd_.get(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
+        return false;
+    }
+    recvTimeoutSet_ = true;
+    return true;
 }
 
 void Connection::shutdownWrite() noexcept {

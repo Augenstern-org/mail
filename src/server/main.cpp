@@ -1,16 +1,18 @@
-// 演练 mail net 层的极简 一连接一线程 回显服务器。
+// 一连接一线程的极简 SMTP 服务器。
 //
-// 这是 M1 的手工验证目标：`telnet 127.0.0.1 2525` 连上后，每输入一整行（CRLF 结
-// 尾）都会被回显。"QUIT"（不区分大小写）结束会话；超长行会被拒绝。SIGINT 干净地
-// 停止 accept 循环。
+// 每个被接受的连接由一个工作线程独占，线程内构造 SMTP 会话状态机（mail::smtp::
+// Session）驱动完整事务序列：EHLO/HELO → MAIL → RCPT → DATA → QUIT。收件人一律
+// 接受（AcceptAllVerifier），收到的消息在打印一行信封摘要后丢弃（DiscardSink）——
+// 本进程只做协议演练，不做真正投递。SIGINT 干净地停止 accept 循环。
 //
 // 并发（v1，见 docs/architecture.md 第 5 节）：一连接一线程。工作线程被 detach——
-// 每个线程按移动语义拥有自己的 Connection，在对端关闭、QUIT 或出错时运行至结束。
-// detach 是可接受的 v1 简化：SIGINT 时 accept 循环停止、main 返回；任何仍在连接中
-// 的工作线程会在进程退出时被拆除。工作线程在启动后不触碰共享状态，故关闭时不会崩溃。
+// 每个线程按移动语义拥有自己的 Connection，在 QUIT、对端关闭、超时或出错时运行至结
+// 束。detach 是可接受的 v1 简化：SIGINT 时 accept 循环停止、main 返回；任何仍在连
+// 接中的工作线程会在进程退出时被拆除。工作线程在启动后不触碰共享状态，故关闭时不会
+// 崩溃。多个工作线程可能并发写 stdout，摘要一次性拼好后单次输出（v1 容忍行间交错）。
 
-#include <cctype>
 #include <charconv>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <iostream>
@@ -20,13 +22,16 @@
 #include <thread>
 
 #include <sys/socket.h>
-#include <unistd.h>
 
 #include "mail/io_status.hpp"
 #include "mail/limits.hpp"
+#include "mail/net/byte_sink.hpp"
 #include "mail/net/connection.hpp"
 #include "mail/net/line_reader.hpp"
 #include "mail/net/listener.hpp"
+#include "mail/smtp/message_sink.hpp"
+#include "mail/smtp/recipient_verifier.hpp"
+#include "mail/smtp/session.hpp"
 
 namespace {
 
@@ -41,44 +46,32 @@ void handleSigint(int) {
     }
 }
 
-bool equalsIgnoreCase(const std::string& s, const char* lit) {
-    std::size_t i = 0;
-    for (; i < s.size() && lit[i] != '\0'; ++i) {
-        unsigned char a = static_cast<unsigned char>(s[i]);
-        unsigned char b = static_cast<unsigned char>(lit[i]);
-        if (std::tolower(a) != std::tolower(b)) {
-            return false;
-        }
+// 丢弃式投递出口：打印一行信封摘要到 stdout 后丢弃消息，始终接受。用于协议演练，不
+// 做真正落地。摘要先拼成一个字符串再单次输出，尽量收拢并发线程间的 stdout 交错；末尾
+// flush 保证每条投递摘要即时可见（工作线程 detach，进程可能不经正常退出即被拆除）。
+class DiscardSink final : public mail::smtp::MessageSink {
+public:
+    mail::smtp::SinkStatus deliver(const mail::smtp::Envelope& envelope,
+                                   std::string_view data) override {
+        std::string summary =
+            "message accepted: from=" +
+            (envelope.sender.empty() ? std::string("<>") : envelope.sender) +
+            " recipients=" + std::to_string(envelope.recipients.size()) +
+            " bytes=" + std::to_string(data.size()) + "\n";
+        std::cout << summary << std::flush;
+        return mail::smtp::SinkStatus::Ok;
     }
-    return i == s.size() && lit[i] == '\0';
-}
+};
 
 void serveConnection(mail::net::Connection conn) {
-    mail::net::LineReader reader(conn, mail::kDefaultMaxLineOctets);
-    std::string line;
-    for (;;) {
-        mail::IoStatus st = reader.readLine(line);
-        if (st == mail::IoStatus::Ok) {
-            if (equalsIgnoreCase(line, "QUIT")) {
-                conn.writeAll("bye\r\n");
-                conn.shutdownWrite();
-                return;
-            }
-            // 把收到的行原样回显，重新以 CRLF 结尾。
-            if (conn.writeAll(line) != mail::IoStatus::Ok ||
-                conn.writeAll("\r\n") != mail::IoStatus::Ok) {
-                return;
-            }
-            continue;
-        }
-        if (st == mail::IoStatus::LineTooLong) {
-            conn.writeAll("line too long\r\n");
-            conn.shutdownWrite();
-            return;
-        }
-        // Closed、Error（含裸 CR/LF 分帧）或任何其他状态：结束。
-        return;
-    }
+    conn.setReceiveTimeout(std::chrono::seconds(
+        static_cast<std::chrono::seconds::rep>(mail::kCommandTimeoutSeconds)));
+    mail::net::LineReader reader(conn, mail::kMaxDataWireLineOctets);
+    DiscardSink sink;
+    mail::smtp::AcceptAllVerifier verifier;
+    mail::smtp::Session session(reader, conn, sink, verifier, {});
+    session.run();
+    conn.shutdownWrite();
 }
 
 }  // namespace

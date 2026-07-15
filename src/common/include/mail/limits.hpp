@@ -24,4 +24,23 @@ inline constexpr std::size_t kMaxNonSyncLiteralOctets = 4096;
 // kMaxCommandLineOctets）应显式传入。
 inline constexpr std::size_t kDefaultMaxLineOctets = 8192;
 
+// 邮件路径（含尖括号的 forward/reverse-path）的最大总长度。
+// RFC 5321 §4.5.3.1.3（"Path"）：256 字节。
+inline constexpr std::size_t kMaxPathOctets = 256;
+
+// 单封邮件必须支持的最大收件人数。
+// RFC 5321 §4.5.3.1.10（"Recipients Buffer"）：100 个。
+inline constexpr std::size_t kMaxRecipients = 100;
+
+// 单封邮件消息内容的最大总长度。RFC 未强制统一上限，故此为项目自定的资源上限。
+inline constexpr std::size_t kMaxMessageOctets = 10 * 1024 * 1024;
+
+// DATA 阶段线路上单行的最大总长度。kMaxTextLineOctets（1000，已含 CRLF）之上再留
+// 1 字节，用于点填充（dot-stuffing）的行首 '.' 余量。项目自定。
+inline constexpr std::size_t kMaxDataWireLineOctets = kMaxTextLineOctets + 1;
+
+// 服务器等待客户端命令的最大空闲秒数（注意：此常量单位是秒，不是字节）。
+// RFC 5321 §4.5.3.2.7（"Command Timeouts"）：5 分钟。
+inline constexpr std::size_t kCommandTimeoutSeconds = 300;
+
 }  // namespace mail
