@@ -56,7 +56,12 @@
   - net 层扩展：`ByteSink` 抽象（与 `ByteSource` 对偶，`Connection` 双实现）、`Connection::setReceiveTimeout`（SO_RCVTIMEO，EAGAIN→Timeout 门控）；`limits.hpp` 补 5 常量（路径 256 / 收件人 100 / 消息 10 MiB / DATA 线径 1001 / 超时 300s）。
   - `server` 由 echo 换为 `Session` 驱动（`DiscardSink` 打印信封摘要后丢弃）。
   - 测试：`smtp_command`（文法边界单测）、`smtp_session`（ChunkSource 喂整场会话，11 场景 + 附加）；5/5 CTest 通过 + 活体冒烟（telnet 级完整投信，dot-unstuffing 以字节数确证）。
-- ⬜ 下一步：**M3 Maildir 存储**——`store::Maildir`（tmp/new/cur 三段式 + 唯一文件名），应用层写 `MaildirSink : smtp::MessageSink` 适配器接入投递链。
+- ✅ **M3 Maildir 存储**（`mail::store`，接口/实现分置 `include/mail/store/` + `src/store/`）：
+  - `MaildirStore`（仅移动）：`open` 工厂建 root/{tmp,new,cur}（0700）+ `deliverMessage` 崩溃安全序列（tmp O_CREAT|O_EXCL 写全→fsync(file)→close 检查→rename→fsync(dir)，EEXIST 换名重试 ≤16，失败 unlink 自清）；`maildir_name` 纯函数层生成 `<epoch>.M<usec>P<pid>Q<seq>.<escaped-host>`。
+  - 应用层 `MaildirSink : smtp::MessageSink`（`src/server/maildir_sink.hpp`）：每收件人一份投 `<root>/<local-part>/new/`，存储侧一切失败一律 451、绝不 PermanentFail。
+  - `server` 由 `DiscardSink` 换为 `MaildirSink`（argv[2] root，默认 `./mailroot`）。
+  - 测试：`maildir_name`（纯函数边界）、`maildir_store`（临时目录演练全序列，含 10 MiB / 100 封唯一性）、`maildir_sink`（适配器 451 语义）；8/8 CTest 通过 + 活体冒烟（250 后 new/ 恰一文件、CRLF 原样、tmp/ 空）。
+- ⬜ 下一步：**M4 用户与认证**——`auth::UserStore`/`Password`/`Sasl`，`RecipientVerifier` 从 AcceptAll 换为真实校验。
 
 ## 未决事项 / 待确认
 

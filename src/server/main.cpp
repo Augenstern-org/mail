@@ -2,14 +2,16 @@
 //
 // 每个被接受的连接由一个工作线程独占，线程内构造 SMTP 会话状态机（mail::smtp::
 // Session）驱动完整事务序列：EHLO/HELO → MAIL → RCPT → DATA → QUIT。收件人一律
-// 接受（AcceptAllVerifier），收到的消息在打印一行信封摘要后丢弃（DiscardSink）——
-// 本进程只做协议演练，不做真正投递。SIGINT 干净地停止 accept 循环。
+// 接受（AcceptAllVerifier），收到的消息经 MaildirSink 真正投递到本地 Maildir：每个
+// 收件人一份独立拷贝，落入 <root>/<local-part>/new/。落盘失败映射为 451。SIGINT 干净
+// 地停止 accept 循环。
 //
 // 并发（v1，见 docs/architecture.md 第 5 节）：一连接一线程。工作线程被 detach——
 // 每个线程按移动语义拥有自己的 Connection，在 QUIT、对端关闭、超时或出错时运行至结
 // 束。detach 是可接受的 v1 简化：SIGINT 时 accept 循环停止、main 返回；任何仍在连
 // 接中的工作线程会在进程退出时被拆除。工作线程在启动后不触碰共享状态，故关闭时不会
-// 崩溃。多个工作线程可能并发写 stdout，摘要一次性拼好后单次输出（v1 容忍行间交错）。
+// 崩溃。工作线程各自持有一份 maildir root 拷贝（按值传入），投递经 MaildirSink 落地，
+// 仅在失败时向 stderr 打印一行诊断（多线程并发写 stderr，v1 容忍行间交错）。
 
 #include <charconv>
 #include <chrono>
@@ -33,6 +35,8 @@
 #include "mail/smtp/recipient_verifier.hpp"
 #include "mail/smtp/session.hpp"
 
+#include "maildir_sink.hpp"
+
 namespace {
 
 // 在 accept 循环之前由 main 设置一次；由 SIGINT 处理函数读取。用 sig_atomic_t 存原
@@ -46,28 +50,11 @@ void handleSigint(int) {
     }
 }
 
-// 丢弃式投递出口：打印一行信封摘要到 stdout 后丢弃消息，始终接受。用于协议演练，不
-// 做真正落地。摘要先拼成一个字符串再单次输出，尽量收拢并发线程间的 stdout 交错；末尾
-// flush 保证每条投递摘要即时可见（工作线程 detach，进程可能不经正常退出即被拆除）。
-class DiscardSink final : public mail::smtp::MessageSink {
-public:
-    mail::smtp::SinkStatus deliver(const mail::smtp::Envelope& envelope,
-                                   std::string_view data) override {
-        std::string summary =
-            "message accepted: from=" +
-            (envelope.sender.empty() ? std::string("<>") : envelope.sender) +
-            " recipients=" + std::to_string(envelope.recipients.size()) +
-            " bytes=" + std::to_string(data.size()) + "\n";
-        std::cout << summary << std::flush;
-        return mail::smtp::SinkStatus::Ok;
-    }
-};
-
-void serveConnection(mail::net::Connection conn) {
+void serveConnection(mail::net::Connection conn, std::string root) {
     conn.setReceiveTimeout(std::chrono::seconds(
         static_cast<std::chrono::seconds::rep>(mail::kCommandTimeoutSeconds)));
     mail::net::LineReader reader(conn, mail::kMaxDataWireLineOctets);
-    DiscardSink sink;
+    mail::app::MaildirSink sink(std::move(root));
     mail::smtp::AcceptAllVerifier verifier;
     mail::smtp::Session session(reader, conn, sink, verifier, {});
     session.run();
@@ -92,6 +79,13 @@ int main(int argc, char** argv) {
         port = static_cast<std::uint16_t>(value);
     }
 
+    // Maildir 根目录：自由路径字符串，不做预校验；MaildirSink 在投递时按需 open，失
+    // 败即映射为 451。默认 "./mailroot"。
+    std::string root = "./mailroot";
+    if (argc > 2) {
+        root = argv[2];
+    }
+
     // 绝不让写向已消失对端的操作杀死进程；writeAll 已使用 MSG_NOSIGNAL，这里是双保险。
     std::signal(SIGPIPE, SIG_IGN);
 
@@ -111,7 +105,8 @@ int main(int argc, char** argv) {
     for (;;) {
         auto accepted = listener.accept();
         if (accepted) {
-            std::thread(serveConnection, std::move(accepted).value()).detach();
+            std::thread(serveConnection, std::move(accepted).value(), root)
+                .detach();
             continue;
         }
         if (accepted.error() == mail::IoStatus::Closed) {

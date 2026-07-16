@@ -1,6 +1,6 @@
 #pragma once
 
-// net I/O 层共享的状态码。
+// I/O 层共享的状态码。
 //
 // 可能部分成功的 I/O 操作（readSome、writeAll、readLine、readExactly）按值返回
 // IoStatus，并通过出参传出所产生的数据。既可能产出对象、也可能失败的工厂函数使用

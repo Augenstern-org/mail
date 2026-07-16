@@ -31,3 +31,21 @@ add_test(NAME net_integration COMMAND net_integration_test)
 add_test(NAME client_smoke COMMAND client)
 set_tests_properties(client_smoke PROPERTIES
     PASS_REGULAR_EXPRESSION "Hello, Client!")
+
+# Maildir unique-name 纯函数单元测试：无 I/O、无系统调用。
+add_executable(maildir_name_test maildir_name_test.cpp)
+target_link_libraries(maildir_name_test PRIVATE mailcommon)
+add_test(NAME maildir_name COMMAND maildir_name_test)
+
+# MaildirStore 落盘集成测试：在临时目录内演练 open/deliverMessage 全序列。
+add_executable(maildir_store_test maildir_store_test.cpp)
+target_link_libraries(maildir_store_test PRIVATE mailcommon)
+add_test(NAME maildir_store COMMAND maildir_store_test)
+
+# MaildirSink 适配器测试：header-only，位于应用层 src/server（storage 层不得
+# include MessageSink，适配器反向依赖 store，见 message_sink.hpp 头注）。
+add_executable(maildir_sink_test maildir_sink_test.cpp)
+target_link_libraries(maildir_sink_test PRIVATE mailcommon)
+target_include_directories(maildir_sink_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/server)
+add_test(NAME maildir_sink COMMAND maildir_sink_test)

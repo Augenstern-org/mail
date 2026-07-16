@@ -54,7 +54,7 @@
 | Auth & Security | `auth::Password` | 口令哈希与校验 |
 | Auth & Security | `auth::Sasl` | SASL PLAIN / LOGIN 机制 |
 | Auth & Security | `security::TlsContext` | OpenSSL 上下文、STARTTLS/隐式 TLS 握手 |
-| Storage | `store::Maildir` | `tmp`/`new`/`cur` 三目录、唯一文件名生成 |
+| Storage | `store::MaildirStore` | `tmp`/`new`/`cur` 三目录、唯一文件名生成 |
 | Storage | `store::Mailbox` | 邮箱枚举、消息列表、标志位 |
 | Message | `mime::Message` | RFC 5322 头/体模型 |
 | Message | `mime::Parser` / `mime::Encoder` | MIME 多部分、编码（base64/quoted-printable） |
@@ -70,7 +70,7 @@
 ```
 客户端 --EHLO/AUTH--> smtp::Session
        --MAIL FROM/RCPT TO/DATA--> 校验信封（RCPT 仅本机用户）
-       --<CRLF>.<CRLF>--> mime 校验 --> store::Maildir 写入收件人 new/
+       --<CRLF>.<CRLF>--> mime 校验 --> store::MaildirStore 写入收件人 new/
 ```
 
 **收信（IMAP）**
@@ -93,7 +93,7 @@
 
 - 每封信一个独立文件，写入无需全局锁，避免 mbox 的并发写锁问题。
 - `tmp/` 写入中、`new/` 新到未读、`cur/` 已被客户端看到；标志位（`\Seen`、`\Flagged` 等）编码在 `cur/` 文件名后缀。
-- 唯一文件名：`<time>.<pid>_<seq>.<host>` 惯例。
+- 唯一文件名：`<epoch>.M<usec>P<pid>Q<seq>.<escaped-host>` 惯例（现代 Maildir，host 转义 `/`→`\057`、`:`→`\072`）。
 
 ## 7. 认证与安全
 

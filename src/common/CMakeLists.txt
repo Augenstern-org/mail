@@ -10,6 +10,8 @@ add_library(mailcommon STATIC
     src/smtp/command.cpp
     src/smtp/reply.cpp
     src/smtp/session.cpp
+    src/store/maildir_name.cpp
+    src/store/maildir.cpp
 )
 
 target_include_directories(mailcommon PUBLIC
