@@ -6,12 +6,12 @@
 
 // SMTP 命令行的纯函数解析层。不接触套接字、不维护会话状态、不做协议时序校验，只把
 // 单条已剥除 CRLF 的命令行文本翻译为一个 tagged 的 Command 结构。文法子集覆盖
-// RFC 5321 的 HELO/EHLO/MAIL/RCPT/DATA/RSET/NOOP/VRFY/QUIT。
+// RFC 5321 的 HELO/EHLO/MAIL/RCPT/DATA/RSET/NOOP/VRFY/QUIT，以及 RFC 4954 的 AUTH。
 
 namespace mail::smtp {
 
 // 命令动词。Unknown 表示动词无法识别（仍视为语法可继续，由上层决定回码）。
-enum class Verb { Helo, Ehlo, Mail, Rcpt, Data, Rset, Noop, Vrfy, Quit, Unknown };
+enum class Verb { Helo, Ehlo, Mail, Rcpt, Data, Rset, Noop, Vrfy, Quit, Auth, Unknown };
 
 // 解析错误分类，直接映射到 SMTP 回码。None 表示解析成功。
 enum class ParseError {
@@ -32,6 +32,9 @@ struct Command {
     std::string path;             // 邮箱路径；空串表示 <>（空反向路径）
     std::size_t declaredSize = 0;  // SIZE= 参数值，未指定为 0
     BodyType body = BodyType::Unspecified;
+    std::string mechanism;            // AUTH 的机制名（已折为大写）；仅 verb==Auth 时有效
+    std::string initialResponse;      // AUTH 的初始响应，仍是 base64 原文（"=" 原样保留）
+    bool hasInitialResponse = false;  // 区分 "AUTH PLAIN"（无）与 "AUTH PLAIN ="（有且为空）
 };
 
 // 解析一条已剥除尾部 CRLF 的 SMTP 命令行。纯函数：动词大小写不敏感，不校验会话状

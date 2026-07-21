@@ -61,13 +61,20 @@
   - 应用层 `MaildirSink : smtp::MessageSink`（`src/server/maildir_sink.hpp`）：每收件人一份投 `<root>/<local-part>/new/`，存储侧一切失败一律 451、绝不 PermanentFail。
   - `server` 由 `DiscardSink` 换为 `MaildirSink`（argv[2] root，默认 `./mailroot`）。
   - 测试：`maildir_name`（纯函数边界）、`maildir_store`（临时目录演练全序列，含 10 MiB / 100 封唯一性）、`maildir_sink`（适配器 451 语义）；8/8 CTest 通过 + 活体冒烟（250 后 new/ 恰一文件、CRLF 原样、tmp/ 空）。
-- ⬜ 下一步：**M4 用户与认证**——`auth::UserStore`/`Password`/`Sasl`，`RecipientVerifier` 从 AcceptAll 换为真实校验。
+- ✅ **M4 用户与认证**（`mail::auth`，接口/实现分置 `include/mail/auth/` + `src/auth/`；`base64` 落在 `src/common`）：
+  - `Password`（libsodium Argon2id INTERACTIVE 档：opslimit=2 / memlimit=64 MiB）：`initCrypto`/`hashPassword`/`verifyPassword`/`dummyEncoded`（缓解用户枚举计时旁路）/`scrub`；`<sodium.h>` 只出现在实现，不泄漏进公开头。
+  - `UserStore`（只读内存视图，`shared_ptr<const>` 跨连接线程共享）：每行 `username:argon2id-crypt`，首个 `':'` 切分、大小写不敏感、格式非法即整体 open 失败；`authenticate` 全程走计数信号量闸门（`kMaxConcurrentVerifications=4`），限制未认证路径上并发 64 MiB 哈希的内存放大。
+  - `Sasl`（PLAIN/LOGIN 载荷解析，纯函数）+ `base64`（RFC 4648，含解码严格性边界）。
+  - `smtp::Session` 接 AUTH：`SessionConfig` 增 `allowPlaintextAuth`/`requireAuthForMail`/`userStore`（默认全关，向后兼容）；EHLO 按需宣告 AUTH、`runAuth` 驱动 334 多轮交换。
+  - 应用层 `UserStoreVerifier : smtp::RecipientVerifier`（`src/server/user_store_verifier.hpp`）：复用与投递侧同一个 `sanitizedLocalPart` 归一 local part，`RecipientVerifier` 由此从 AcceptAll 换为真实存在性校验（550 首次可达）。
+  - `server`：可选 argv[3] 用户档路径——提供则启用 AUTH + 真实收件人校验并把 `shared_ptr<const UserStore>` 按值分发给工作线程，缺省则保持 AcceptAll + AUTH 关闭（无新增必填参数）。
+  - 测试：`base64`、`auth_password`、`auth_user_store`（并发闸门）、`auth_sasl`、`user_store_verifier`（RCPT 裁决 + "Accept ⇒ 可投递"一致性不变量）。
+- ⬜ 下一步：**M5 IMAP 服务**——`imap::Session` 最小子集（CAPABILITY/LOGIN/LIST/SELECT/FETCH/STORE/EXPUNGE/LOGOUT），收下 M2 投递的信。
 
 ## 未决事项 / 待确认
 
 | # | 事项 | 影响 |
 |---|---|---|
 | C | 客户端形态（CLI/Web/桌面） | 可延后到服务端稳定 |
-| D | 口令哈希算法（Argon2/libsodium 首选） | M4 前确定 |
 
-> 已解决：A 开发环境 → WSL2 + gcc/cmake/ninja/vcpkg；B `custom` → 已重命名 `client`。
+> 已解决：A 开发环境 → WSL2 + gcc/cmake/ninja/vcpkg；B `custom` → 已重命名 `client`；D 口令哈希算法 → libsodium Argon2id（INTERACTIVE 档），经 apt `libsodium-dev` + pkg-config 引入（非 vcpkg）。

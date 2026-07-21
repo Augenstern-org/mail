@@ -49,3 +49,31 @@ target_link_libraries(maildir_sink_test PRIVATE mailcommon)
 target_include_directories(maildir_sink_test PRIVATE
     ${CMAKE_SOURCE_DIR}/src/server)
 add_test(NAME maildir_sink COMMAND maildir_sink_test)
+
+# base64 编解码单元测试：纯函数，覆盖 RFC 4648 §10 向量与解码器的全部严格性边界。
+add_executable(base64_test base64_test.cpp)
+target_link_libraries(base64_test PRIVATE mailcommon)
+add_test(NAME base64 COMMAND base64_test)
+
+# 口令哈希单元测试：经 libsodium 演练 hash/verify 往返与畸形摘要的拒绝。
+add_executable(auth_password_test auth_password_test.cpp)
+target_link_libraries(auth_password_test PRIVATE mailcommon)
+add_test(NAME auth_password COMMAND auth_password_test)
+
+# UserStore 单元测试：账户表的加载、查找与并发访问。
+add_executable(auth_user_store_test auth_user_store_test.cpp)
+target_link_libraries(auth_user_store_test PRIVATE mailcommon)
+add_test(NAME auth_user_store COMMAND auth_user_store_test)
+
+# SASL 机制单元测试：PLAIN/LOGIN 的载荷解析，纯函数、无套接字。
+add_executable(auth_sasl_test auth_sasl_test.cpp)
+target_link_libraries(auth_sasl_test PRIVATE mailcommon)
+add_test(NAME auth_sasl COMMAND auth_sasl_test)
+
+# UserStoreVerifier 适配器测试：与 MaildirSink 同理，位于应用层 src/server，
+# 故需额外把该目录加入 include 路径。
+add_executable(user_store_verifier_test user_store_verifier_test.cpp)
+target_link_libraries(user_store_verifier_test PRIVATE mailcommon)
+target_include_directories(user_store_verifier_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/server)
+add_test(NAME user_store_verifier COMMAND user_store_verifier_test)

@@ -121,7 +121,7 @@ mail/
 └── benchmarks/             # 微基准（默认关闭）
 ```
 
-> `src/common/` 及其各模块随实现推进逐步创建；当前尚未落地，故仓库中暂无该目录。
+> `src/common/`（mailcommon 静态库）自 M1 起已落地，其下 net / smtp / store / auth 等模块随里程碑推进逐步补齐。
 
 ## 9. 测试策略
 
@@ -134,6 +134,5 @@ mail/
 | # | 事项 | 说明 |
 |---|---|---|
 | C | 客户端形态 | CLI / Web / 桌面，暂缓；先用现成客户端验证服务端。 |
-| D | 口令哈希算法 | Argon2（libsodium）为首选；实现认证时定。 |
 
-> 已解决：开发环境统一为 WSL2 + gcc + cmake + ninja + vcpkg（CLion 工具链已切至 WSL）；客户端目标已由 `custom` 重命名为 `client`。
+> 已解决：开发环境统一为 WSL2 + gcc + cmake + ninja + vcpkg（CLion 工具链已切至 WSL）；客户端目标已由 `custom` 重命名为 `client`；D 口令哈希算法已于 M4 定为 libsodium Argon2id（INTERACTIVE 档），经 apt `libsodium-dev` + pkg-config 引入。

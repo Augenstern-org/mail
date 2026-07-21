@@ -9,6 +9,9 @@ namespace mail::smtp {
 
 namespace {
 
+// SASL 机制名的最大字符数。RFC 4422 §3.1（"SASL mechanism names"）：1-20 个字符。
+constexpr std::size_t kMaxSaslMechanismChars = 20;
+
 // 将单个 ASCII 字符转为大写，避免依赖当前 locale。
 char asciiUpper(char c) {
     if (c >= 'a' && c <= 'z') {
@@ -122,6 +125,13 @@ void applyParam(std::string_view param, Command& out) {
         return;
     }
 
+    // RFC 4954 §5 MUST：宣告 AUTH 的服务器必须接受 MAIL FROM 上的 AUTH= 参数，
+    // 即使客户端尚未认证 —— 此时"必须表现得如同收到 AUTH=<>"。故解析后**丢弃**，
+    // 不落进 Command，也不报 BadParam。
+    if (iequals(name, "AUTH")) {
+        return;
+    }
+
     out.error = ParseError::BadParam;
 }
 
@@ -193,6 +203,44 @@ void parseGreeting(std::string_view s, std::size_t pos, Command& out) {
     out.domain.assign(arg);
 }
 
+// 解析 AUTH 的机制名与可选的初始响应（RFC 4954 §4）。机制名按 RFC 4422 §3.1 校验：
+// 1-20 字节，仅允许 ALPHA / DIGIT / '-' / '_'，存入 out.mechanism 时折为大写。初始响
+// 应保留 base64 原文（"=" 表示长度为零的初始响应，此处不解码），且至多一个 token。
+void parseAuth(std::string_view s, std::size_t pos, Command& out) {
+    pos = skipSpaces(s, pos);
+    std::string_view mech = nextToken(s, pos);
+    if (mech.empty() || mech.size() > kMaxSaslMechanismChars) {
+        out.error = ParseError::Syntax;
+        return;
+    }
+    for (char c : mech) {
+        bool valid = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                     (c >= '0' && c <= '9') || c == '-' || c == '_';
+        if (!valid) {
+            out.error = ParseError::Syntax;
+            return;
+        }
+    }
+    out.mechanism.clear();
+    out.mechanism.reserve(mech.size());
+    for (char c : mech) {
+        out.mechanism.push_back(asciiUpper(c));
+    }
+
+    pos = skipSpaces(s, pos);
+    if (pos >= s.size()) {
+        return;
+    }
+    out.initialResponse.assign(nextToken(s, pos));
+    out.hasInitialResponse = true;
+
+    // 文法只允许一个初始响应 token，其后除空白外不得再有内容。
+    pos = skipSpaces(s, pos);
+    if (pos < s.size()) {
+        out.error = ParseError::Syntax;
+    }
+}
+
 }  // namespace
 
 Command parseCommand(std::string_view line) {
@@ -223,6 +271,9 @@ Command parseCommand(std::string_view line) {
         out.verb = Verb::Vrfy;
     } else if (iequals(verbTok, "QUIT")) {
         out.verb = Verb::Quit;
+    } else if (iequals(verbTok, "AUTH")) {
+        out.verb = Verb::Auth;
+        parseAuth(line, pos, out);
     } else {
         out.verb = Verb::Unknown;
     }

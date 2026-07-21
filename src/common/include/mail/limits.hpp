@@ -39,6 +39,20 @@ inline constexpr std::size_t kMaxMessageOctets = 10 * 1024 * 1024;
 // 1 字节，用于点填充（dot-stuffing）的行首 '.' 余量。项目自定。
 inline constexpr std::size_t kMaxDataWireLineOctets = kMaxTextLineOctets + 1;
 
+// AUTH（RFC 4954）交换中**续行**的最大总长度，含尾部 CRLF。AUTH 命令行本身仍受
+// kMaxCommandLineOctets（512）约束；RFC 4954 §4 明确把续行排除在命令行限制之外
+//（"This requirement is independent of any line length limitations"），并指出 12288
+// 字节足矣。本项目取更紧的 2048：RFC 4616 要求 authzid/authcid/passwd 各支持到 255
+// 字节，最坏情形 767 字节原文 → base64 后 1024 → 含 CRLF 1026；2048 留余量。项目自定。
+inline constexpr std::size_t kMaxAuthLineOctets = 2048;
+
+// LineReader 为 SMTP 连接分帧时使用的上限，含尾部 CRLF。取本层各上下文上限的最大值
+// —— LineReader 只负责"能把最长的合法行装下"，各上下文更紧的上限一律由 Session 自
+// 查：命令行由 run() 的命令长度自查，DATA 行由 collectData，AUTH 续行由 runAuth。
+inline constexpr std::size_t kMaxWireLineOctets =
+    kMaxAuthLineOctets > kMaxDataWireLineOctets ? kMaxAuthLineOctets
+                                                : kMaxDataWireLineOctets;
+
 // 服务器等待客户端命令的最大空闲秒数（注意：此常量单位是秒，不是字节）。
 // RFC 5321 §4.5.3.2.7（"Command Timeouts"）：5 分钟。
 inline constexpr std::size_t kCommandTimeoutSeconds = 300;
