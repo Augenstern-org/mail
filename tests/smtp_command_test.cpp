@@ -146,6 +146,86 @@ void testGreetingDomain() {
     CHECK(noArg.error == ParseError::Syntax);
 }
 
+// AUTH 机制名解析：大小写不敏感并折为大写；无初始响应时 hasInitialResponse 为假。
+void testAuthMechanism() {
+    Command plain = parseCommand("AUTH PLAIN");
+    CHECK(plain.verb == Verb::Auth);
+    CHECK(plain.error == ParseError::None);
+    CHECK(plain.mechanism == "PLAIN");
+    CHECK(!plain.hasInitialResponse);
+
+    Command lower = parseCommand("auth plain");
+    CHECK(lower.verb == Verb::Auth);
+    CHECK(lower.error == ParseError::None);
+    CHECK(lower.mechanism == "PLAIN");
+
+    Command login = parseCommand("AUTH LOGIN");
+    CHECK(login.error == ParseError::None);
+    CHECK(login.mechanism == "LOGIN");
+}
+
+// 初始响应原样保留（不解码）；"=" 表示"存在且为空"，与完全不带初始响应有别。
+void testAuthInitialResponse() {
+    Command empty = parseCommand("AUTH PLAIN =");
+    CHECK(empty.error == ParseError::None);
+    CHECK(empty.mechanism == "PLAIN");
+    CHECK(empty.hasInitialResponse);
+    CHECK(empty.initialResponse == "=");
+
+    Command withIr = parseCommand("AUTH PLAIN AGFsaWNlAHB3");
+    CHECK(withIr.error == ParseError::None);
+    CHECK(withIr.hasInitialResponse);
+    CHECK(withIr.initialResponse == "AGFsaWNlAHB3");
+}
+
+// AUTH 的语法错误：缺机制名、初始响应多于一个 token。
+void testAuthSyntaxErrors() {
+    Command noMech = parseCommand("AUTH");
+    CHECK(noMech.verb == Verb::Auth);
+    CHECK(noMech.error == ParseError::Syntax);
+
+    Command extraToken = parseCommand("AUTH PLAIN a b");
+    CHECK(extraToken.verb == Verb::Auth);
+    CHECK(extraToken.error == ParseError::Syntax);
+}
+
+// 机制名字符集与长度（RFC 4422 §3.1）：1-20 字节，仅 ALPHA/DIGIT/'-'/'_'。
+void testAuthMechanismCharset() {
+    std::string tooLong(21, 'A');
+    Command over = parseCommand("AUTH " + tooLong);
+    CHECK(over.error == ParseError::Syntax);
+
+    std::string atLimit(20, 'A');
+    Command exact = parseCommand("AUTH " + atLimit);
+    CHECK(exact.error == ParseError::None);
+    CHECK(exact.mechanism == atLimit);
+
+    // '.' 不在允许字符集内。
+    Command badChar = parseCommand("AUTH PLA.IN");
+    CHECK(badChar.error == ParseError::Syntax);
+
+    // '-' 与 '_' 合法。
+    Command hyphen = parseCommand("AUTH CRAM-MD5");
+    CHECK(hyphen.error == ParseError::None);
+    CHECK(hyphen.mechanism == "CRAM-MD5");
+}
+
+// RFC 4954 §5：MAIL FROM 上的 AUTH= 参数必须被接受（解析后丢弃），但白名单不得放宽
+// 到其他未知参数。
+void testMailFromAuthParam() {
+    Command emptyAuth = parseCommand("MAIL FROM:<a@b> AUTH=<>");
+    CHECK(emptyAuth.verb == Verb::Mail);
+    CHECK(emptyAuth.error == ParseError::None);
+    CHECK(emptyAuth.path == "a@b");
+
+    Command withAddr = parseCommand("MAIL FROM:<a@b> AUTH=alice@example.com");
+    CHECK(withAddr.error == ParseError::None);
+
+    // 其余未知参数仍然 → BadParam(555)。
+    Command bogus = parseCommand("MAIL FROM:<a@b> BOGUS=1");
+    CHECK(bogus.error == ParseError::BadParam);
+}
+
 // Reply 多行序列化：前 n-1 行连字符形态，末行空格形态。
 void testReplyMultilineSerialize() {
     Reply reply;
@@ -175,6 +255,11 @@ int main() {
     testSyntaxErrors();
     testVerbCaseInsensitive();
     testGreetingDomain();
+    testAuthMechanism();
+    testAuthInitialResponse();
+    testAuthSyntaxErrors();
+    testAuthMechanismCharset();
+    testMailFromAuthParam();
     testReplyMultilineSerialize();
     testReplySingleSerialize();
 
